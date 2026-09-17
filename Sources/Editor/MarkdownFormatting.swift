@@ -13,6 +13,7 @@ enum MarkdownFormattingAction: Equatable {
     case taskList
     case codeBlock
     case wikiLink(String)
+    case completeWikiLink(target: String, replacementRange: NSRange)
 }
 
 struct MarkdownFormattingRequest: Equatable {
@@ -54,6 +55,8 @@ struct MarkdownTextMutation {
             return wrap(text, selection: selection, prefix: "```\n", suffix: "\n```", placeholder: "code")
         case let .wikiLink(target):
             return wikiLink(text, selection: selection, target: target)
+        case let .completeWikiLink(target, replacementRange):
+            return completeWikiLink(text, target: target, replacementRange: replacementRange)
         }
     }
 
@@ -127,6 +130,25 @@ struct MarkdownTextMutation {
         )
     }
 
+    private static func completeWikiLink(
+        _ text: String,
+        target: String,
+        replacementRange: NSRange
+    ) -> MarkdownTextMutation {
+        let source = text as NSString
+        let safeRange = clamped(replacementRange, to: source.length)
+        let replacement = "[[\(target)]]"
+        let result = source.mutableCopy() as! NSMutableString
+        result.replaceCharacters(in: safeRange, with: replacement)
+        return MarkdownTextMutation(
+            text: result as String,
+            selection: NSRange(
+                location: safeRange.location + (replacement as NSString).length,
+                length: 0
+            )
+        )
+    }
+
     private static func heading(
         _ text: String,
         selection: NSRange,
@@ -179,5 +201,38 @@ struct MarkdownTextMutation {
         let location = min(max(range.location, 0), length)
         let availableLength = length - location
         return NSRange(location: location, length: min(max(range.length, 0), availableLength))
+    }
+}
+
+struct WikiLinkCompletionContext: Equatable {
+    let query: String
+    let replacementRange: NSRange
+
+    static func detect(in text: String, selection: NSRange) -> WikiLinkCompletionContext? {
+        let source = text as NSString
+        guard selection.length == 0,
+              selection.location >= 2,
+              selection.location <= source.length else { return nil }
+
+        let searchRange = NSRange(location: 0, length: selection.location)
+        let openingRange = source.range(of: "[[", options: .backwards, range: searchRange)
+        guard openingRange.location != NSNotFound else { return nil }
+
+        let queryLocation = NSMaxRange(openingRange)
+        let queryRange = NSRange(
+            location: queryLocation,
+            length: selection.location - queryLocation
+        )
+        let query = source.substring(with: queryRange)
+        let invalidCharacters = CharacterSet(charactersIn: "[]|#\n\r")
+        guard query.rangeOfCharacter(from: invalidCharacters) == nil else { return nil }
+
+        return WikiLinkCompletionContext(
+            query: query,
+            replacementRange: NSRange(
+                location: openingRange.location,
+                length: selection.location - openingRange.location
+            )
+        )
     }
 }

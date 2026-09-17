@@ -5,6 +5,7 @@ import AppKit
 
 struct MarkdownTextEditor: NSViewRepresentable {
     @Binding var text: String
+    @Binding var wikiLinkCompletion: WikiLinkCompletionContext?
     let formattingRequest: MarkdownFormattingRequest?
     let navigationRequest: MarkdownNavigationRequest?
 
@@ -64,6 +65,13 @@ struct MarkdownTextEditor: NSViewRepresentable {
                   let textView = notification.object as? NSTextView else { return }
             parent.text = textView.string
             highlight(textView)
+            publishCompletion(from: textView.string, selection: textView.selectedRange())
+        }
+
+        func textViewDidChangeSelection(_ notification: Notification) {
+            guard !isSynchronizing,
+                  let textView = notification.object as? NSTextView else { return }
+            publishCompletion(from: textView.string, selection: textView.selectedRange())
         }
 
         func synchronize(_ textView: NSTextView) {
@@ -111,6 +119,13 @@ struct MarkdownTextEditor: NSViewRepresentable {
             textView.scrollRangeToVisible(range)
         }
 
+        private func publishCompletion(from text: String, selection: NSRange) {
+            let completion = WikiLinkCompletionContext.detect(in: text, selection: selection)
+            if parent.wikiLinkCompletion != completion {
+                parent.wikiLinkCompletion = completion
+            }
+        }
+
         func highlight(_ textView: NSTextView) {
             let selection = textView.selectedRange()
             highlighter.apply(to: textView.textStorage ?? NSTextStorage())
@@ -129,6 +144,7 @@ import UIKit
 
 struct MarkdownTextEditor: UIViewRepresentable {
     @Binding var text: String
+    @Binding var wikiLinkCompletion: WikiLinkCompletionContext?
     let formattingRequest: MarkdownFormattingRequest?
     let navigationRequest: MarkdownNavigationRequest?
 
@@ -172,6 +188,12 @@ struct MarkdownTextEditor: UIViewRepresentable {
             guard !isSynchronizing else { return }
             parent.text = textView.text
             highlight(textView)
+            publishCompletion(from: textView.text, selection: textView.selectedRange)
+        }
+
+        func textViewDidChangeSelection(_ textView: UITextView) {
+            guard !isSynchronizing else { return }
+            publishCompletion(from: textView.text, selection: textView.selectedRange)
         }
 
         func synchronize(_ textView: UITextView) {
@@ -217,6 +239,13 @@ struct MarkdownTextEditor: UIViewRepresentable {
             let range = NSRange(location: location, length: 0)
             textView.selectedRange = range
             textView.scrollRangeToVisible(range)
+        }
+
+        private func publishCompletion(from text: String, selection: NSRange) {
+            let completion = WikiLinkCompletionContext.detect(in: text, selection: selection)
+            if parent.wikiLinkCompletion != completion {
+                parent.wikiLinkCompletion = completion
+            }
         }
 
         func highlight(_ textView: UITextView) {

@@ -26,6 +26,7 @@ struct MarkdownEditorView: View {
     @State private var layout: EditorLayout = .split
     @State private var columnVisibility: NavigationSplitViewVisibility = .detailOnly
     @State private var showingVaultImporter = false
+    @State private var wikiLinkCompletion: WikiLinkCompletionContext?
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -50,7 +51,7 @@ struct MarkdownEditorView: View {
             VStack(spacing: 0) {
                 EditorFormattingBar(
                     layout: $layout,
-                    noteTitles: wikiLinkStore.noteTitles
+                    noteTargets: wikiLinkStore.noteLinkTargets
                 ) { action in
                     formattingRequest = MarkdownFormattingRequest(action: action)
                 }
@@ -179,13 +180,36 @@ struct MarkdownEditorView: View {
     }
 
     private var sourceEditor: some View {
-        MarkdownTextEditor(
-            text: $document.text,
-            formattingRequest: formattingRequest,
-            navigationRequest: navigationRequest
+        ZStack(alignment: .bottomLeading) {
+            MarkdownTextEditor(
+                text: $document.text,
+                wikiLinkCompletion: $wikiLinkCompletion,
+                formattingRequest: formattingRequest,
+                navigationRequest: navigationRequest
+            )
+            .background(Color.editorBackground)
+            .accessibilityLabel("Markdown editor")
+
+            if let wikiLinkCompletion {
+                WikiLinkCompletionPanel(
+                    context: wikiLinkCompletion,
+                    noteTargets: wikiLinkStore.noteLinkTargets,
+                    selectTarget: completeWikiLink
+                )
+                .padding(12)
+            }
+        }
+    }
+
+    private func completeWikiLink(_ target: String) {
+        guard let wikiLinkCompletion else { return }
+        formattingRequest = MarkdownFormattingRequest(
+            action: .completeWikiLink(
+                target: target,
+                replacementRange: wikiLinkCompletion.replacementRange
+            )
         )
-        .background(Color.editorBackground)
-        .accessibilityLabel("Markdown editor")
+        self.wikiLinkCompletion = nil
     }
 
     private func openWikiTarget(_ target: String) {
@@ -231,7 +255,7 @@ struct MarkdownEditorView: View {
 
 private struct EditorFormattingBar: View {
     @Binding var layout: EditorLayout
-    let noteTitles: [String]
+    let noteTargets: [String]
     let perform: (MarkdownFormattingAction) -> Void
 
     var body: some View {
@@ -281,12 +305,12 @@ private struct EditorFormattingBar: View {
                 .help("Link (⌘K)")
 
                 Menu {
-                    if noteTitles.isEmpty {
+                    if noteTargets.isEmpty {
                         Text("No indexed notes")
                     } else {
-                        ForEach(noteTitles, id: \.self) { title in
-                            Button(title) {
-                                perform(.wikiLink(title))
+                        ForEach(noteTargets, id: \.self) { target in
+                            Button(target) {
+                                perform(.wikiLink(target))
                             }
                         }
                     }
@@ -347,6 +371,96 @@ private struct EditorFormattingBar: View {
             .padding(.horizontal, 10)
         }
         .background(.bar)
+    }
+}
+
+private struct WikiLinkCompletionPanel: View {
+    let context: WikiLinkCompletionContext
+    let noteTargets: [String]
+    let selectTarget: (String) -> Void
+
+    private var query: String {
+        context.query.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var matches: [String] {
+        let candidates = query.isEmpty
+            ? noteTargets
+            : noteTargets.filter { $0.localizedCaseInsensitiveContains(query) }
+        return Array(candidates.prefix(6))
+    }
+
+    private var newTarget: String? {
+        guard !query.isEmpty,
+              !noteTargets.contains(where: { $0.caseInsensitiveCompare(query) == .orderedSame }) else {
+            return nil
+        }
+        return query
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Label("Link to note", systemImage: "link")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+
+            Divider()
+
+            if matches.isEmpty && newTarget == nil {
+                Text("Type a note name")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(12)
+            } else {
+                ForEach(matches, id: \.self) { target in
+                    completionButton(
+                        title: target,
+                        systemImage: "doc.text",
+                        target: target
+                    )
+                }
+
+                if let newTarget {
+                    if !matches.isEmpty {
+                        Divider()
+                    }
+                    completionButton(
+                        title: "Link to \(newTarget)",
+                        systemImage: "plus.circle",
+                        target: newTarget
+                    )
+                }
+            }
+        }
+        .frame(maxWidth: 340, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(.separator.opacity(0.6), lineWidth: 1)
+        }
+        .shadow(radius: 8, y: 3)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Wiki link suggestions")
+    }
+
+    private func completionButton(
+        title: String,
+        systemImage: String,
+        target: String
+    ) -> some View {
+        Button {
+            selectTarget(target)
+        } label: {
+            Label(title, systemImage: systemImage)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 

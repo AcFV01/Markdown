@@ -58,6 +58,12 @@ struct WorkspaceLinkIndex: Sendable {
         }
     }
 
+    var noteLinkTargets: [String] {
+        Array(Set(notes.map(\.relativePath))).sorted {
+            $0.localizedStandardCompare($1) == .orderedAscending
+        }
+    }
+
     var knowledgeNotes: [KnowledgeNote] {
         notes.map { note in
             KnowledgeNote(
