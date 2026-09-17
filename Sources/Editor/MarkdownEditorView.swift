@@ -46,6 +46,7 @@ struct MarkdownEditorView: View {
                 },
                 openDocument: { openLinkedDocument($0) },
                 openWikiLink: openWikiTarget,
+                createNote: createKnowledgeNote,
                 refreshLinks: refreshLinkIndex
             )
         } detail: {
@@ -116,7 +117,7 @@ struct MarkdownEditorView: View {
             await wikiLinkStore.load(
                 containing: fileURL,
                 currentText: document.text,
-                workspaceURL: vaultAccess.vaultURL
+                workspaceURL: effectiveWorkspaceURL
             )
             navigateToPendingHeadingIfNeeded()
         }
@@ -136,7 +137,7 @@ struct MarkdownEditorView: View {
     }
 
     private var linkIndexIdentity: String {
-        [fileURL?.standardizedFileURL.path, vaultAccess.vaultURL?.standardizedFileURL.path]
+        [fileURL?.standardizedFileURL.path, effectiveWorkspaceURL?.standardizedFileURL.path]
             .compactMap { $0 }
             .joined(separator: "|")
     }
@@ -145,10 +146,17 @@ struct MarkdownEditorView: View {
         if let vaultURL = vaultAccess.vaultURL {
             return "Knowledge Base: \(vaultURL.lastPathComponent)"
         }
+        if let workspaceURL = wikiNavigation.workspace(for: fileURL) {
+            return "Folder: \(workspaceURL.lastPathComponent)"
+        }
         if let fileURL {
             return "Folder: \(fileURL.deletingLastPathComponent().lastPathComponent)"
         }
         return "No Knowledge Base"
+    }
+
+    private var effectiveWorkspaceURL: URL? {
+        vaultAccess.vaultURL ?? wikiNavigation.workspace(for: fileURL)
     }
 
     @ViewBuilder
@@ -232,7 +240,7 @@ struct MarkdownEditorView: View {
                 await wikiLinkStore.load(
                     containing: fileURL,
                     currentText: document.text,
-                    workspaceURL: vaultAccess.vaultURL
+                    workspaceURL: effectiveWorkspaceURL
                 )
                 openLinkedDocument(destination, heading: link.heading)
             } catch {
@@ -241,7 +249,26 @@ struct MarkdownEditorView: View {
         }
     }
 
+    private func createKnowledgeNote(_ name: String) {
+        Task {
+            do {
+                let destination = try await wikiLinkStore.createNote(for: name)
+                await wikiLinkStore.load(
+                    containing: fileURL,
+                    currentText: document.text,
+                    workspaceURL: effectiveWorkspaceURL
+                )
+                openLinkedDocument(destination)
+            } catch {
+                wikiLinkStore.report(error)
+            }
+        }
+    }
+
     private func openLinkedDocument(_ url: URL, heading: String? = nil) {
+        if vaultAccess.vaultURL == nil, let workspaceURL = wikiLinkStore.workspaceURL {
+            wikiNavigation.registerWorkspace(workspaceURL, for: url)
+        }
         if let heading, !heading.isEmpty {
             wikiNavigation.request(destinationURL: url, heading: heading)
         }
@@ -280,7 +307,7 @@ struct MarkdownEditorView: View {
             await wikiLinkStore.load(
                 containing: fileURL,
                 currentText: document.text,
-                workspaceURL: vaultAccess.vaultURL
+                workspaceURL: effectiveWorkspaceURL
             )
         }
     }

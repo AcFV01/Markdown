@@ -29,10 +29,13 @@ struct MarkdownOutlineView: View {
     let selectHeading: (MarkdownOutlineItem) -> Void
     let openDocument: (URL) -> Void
     let openWikiLink: (WikiLinkDestination) -> Void
+    let createNote: (String) -> Void
     let refreshLinks: () -> Void
 
     @State private var section: SidebarSection = .notes
     @State private var noteSearchText = ""
+    @State private var newNoteName = ""
+    @State private var isPresentingNewNote = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -54,6 +57,16 @@ struct MarkdownOutlineView: View {
                     }
                 }
                 .pickerStyle(.segmented)
+
+                if section == .notes {
+                    Button {
+                        presentNewNote()
+                    } label: {
+                        Image(systemName: "square.and.pencil")
+                    }
+                    .buttonStyle(.plain)
+                    .help("New note")
+                }
 
                 if section != .outline {
                     Button(action: refreshLinks) {
@@ -93,6 +106,16 @@ struct MarkdownOutlineView: View {
         }
         .navigationTitle("Knowledge")
         .navigationSplitViewColumnWidth(min: 210, ideal: 260, max: 360)
+        .alert("New Note", isPresented: $isPresentingNewNote) {
+            TextField("Name or folder/name", text: $newNoteName)
+            Button("Cancel", role: .cancel) {}
+            Button("Create") {
+                submitNewNote()
+            }
+            .disabled(trimmedNewNoteName.isEmpty)
+        } message: {
+            Text("Create a Markdown note in the current knowledge base.")
+        }
     }
 
     @ViewBuilder
@@ -119,14 +142,27 @@ struct MarkdownOutlineView: View {
 
             Divider()
 
-            if notes.isEmpty {
-                ContentUnavailableView(
-                    "No Notes",
-                    systemImage: "doc.text.magnifyingglass",
-                    description: Text("Markdown files in this folder will appear here.")
-                )
-            } else if filteredNotes.isEmpty {
-                ContentUnavailableView.search(text: noteSearchText)
+            if filteredNotes.isEmpty && !trimmedSearchText.isEmpty {
+                ContentUnavailableView {
+                    Label("No Results", systemImage: "magnifyingglass")
+                } description: {
+                    Text("No notes contain \"\(trimmedSearchText)\".")
+                } actions: {
+                    Button("Create \"\(trimmedSearchText)\"") {
+                        createNote(trimmedSearchText)
+                        noteSearchText = ""
+                    }
+                }
+            } else if notes.isEmpty {
+                ContentUnavailableView {
+                    Label("No Notes", systemImage: "doc.text.magnifyingglass")
+                } description: {
+                    Text("Markdown files in this folder will appear here.")
+                } actions: {
+                    Button("Create Note") {
+                        presentNewNote()
+                    }
+                }
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
@@ -169,11 +205,30 @@ struct MarkdownOutlineView: View {
     }
 
     private var filteredNotes: [KnowledgeNote] {
-        let query = noteSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return notes }
+        guard !trimmedSearchText.isEmpty else { return notes }
         return notes.filter { note in
-            note.searchableText.localizedCaseInsensitiveContains(query)
+            note.searchableText.localizedCaseInsensitiveContains(trimmedSearchText)
         }
+    }
+
+    private var trimmedSearchText: String {
+        noteSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var trimmedNewNoteName: String {
+        newNoteName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func presentNewNote(defaultName: String = "") {
+        newNoteName = defaultName
+        isPresentingNewNote = true
+    }
+
+    private func submitNewNote() {
+        guard !trimmedNewNoteName.isEmpty else { return }
+        createNote(trimmedNewNoteName)
+        noteSearchText = ""
+        newNoteName = ""
     }
 
     @ViewBuilder

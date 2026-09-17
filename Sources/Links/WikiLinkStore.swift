@@ -61,6 +61,10 @@ final class WikiLinkStore: ObservableObject {
         index.headings(for: target)
     }
 
+    var workspaceURL: URL? {
+        index.rootDirectory
+    }
+
     func report(_ error: Error) {
         errorMessage = error.localizedDescription
     }
@@ -113,6 +117,7 @@ struct PendingWikiNavigation: Identifiable, Equatable {
 @MainActor
 final class WikiNavigationStore: ObservableObject {
     @Published private(set) var pending: PendingWikiNavigation?
+    @Published private var workspaceRoots: [String: URL] = [:]
 
     func request(destinationURL: URL, heading: String) {
         pending = PendingWikiNavigation(
@@ -132,6 +137,18 @@ final class WikiNavigationStore: ObservableObject {
     func consume(_ navigation: PendingWikiNavigation) {
         guard pending?.id == navigation.id else { return }
         pending = nil
+    }
+
+    func registerWorkspace(_ workspaceURL: URL, for documentURL: URL) {
+        let documentPath = documentURL.standardizedFileURL.path
+        let workspace = workspaceURL.standardizedFileURL
+        guard workspaceRoots[documentPath]?.path != workspace.path else { return }
+        workspaceRoots[documentPath] = workspace
+    }
+
+    func workspace(for documentURL: URL?) -> URL? {
+        guard let documentURL else { return nil }
+        return workspaceRoots[documentURL.standardizedFileURL.path]
     }
 }
 
@@ -158,7 +175,12 @@ private enum WikiLinkFileCreator {
             guard !path.hasPrefix("/") else {
                 throw WikiLinkCreationError.invalidTarget
             }
-            path = (path as NSString).deletingPathExtension
+            let lowercasePath = path.lowercased()
+            if lowercasePath.hasSuffix(".md")
+                || lowercasePath.hasSuffix(".markdown")
+                || lowercasePath.hasSuffix(".mdown") {
+                path = (path as NSString).deletingPathExtension
+            }
             let components = path.split(separator: "/").map(String.init)
             guard !components.isEmpty,
                   components.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else {
