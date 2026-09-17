@@ -13,6 +13,12 @@ struct MarkdownEditorView: View {
     let fileURL: URL?
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+#if os(macOS)
+    @Environment(\.openDocument) private var openDocument
+#else
+    @Environment(\.openURL) private var openURL
+#endif
+    @StateObject private var wikiLinkStore = WikiLinkStore()
     @State private var formattingRequest: MarkdownFormattingRequest?
     @State private var navigationRequest: MarkdownNavigationRequest?
     @State private var layout: EditorLayout = .split
@@ -20,11 +26,20 @@ struct MarkdownEditorView: View {
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
-            MarkdownOutlineView(items: parsedDocument.outline) { item in
-                navigationRequest = MarkdownNavigationRequest(
-                    sourceLocation: item.sourceLocation
-                )
-            }
+            MarkdownOutlineView(
+                items: parsedDocument.outline,
+                outgoingLinks: wikiLinkStore.outgoingLinks,
+                backlinks: wikiLinkStore.backlinks,
+                isIndexing: wikiLinkStore.isIndexing,
+                errorMessage: wikiLinkStore.errorMessage,
+                selectHeading: { item in
+                    navigationRequest = MarkdownNavigationRequest(
+                        sourceLocation: item.sourceLocation
+                    )
+                },
+                openDocument: openLinkedDocument,
+                refreshLinks: refreshLinkIndex
+            )
         } detail: {
             VStack(spacing: 0) {
                 EditorFormattingBar(layout: $layout) { action in
@@ -56,6 +71,15 @@ struct MarkdownEditorView: View {
                 .help("Toggle outline")
             }
         }
+        .task(id: fileURL) {
+            await wikiLinkStore.load(
+                containing: fileURL,
+                currentText: document.text
+            )
+        }
+        .onChange(of: document.text) { _, newText in
+            wikiLinkStore.updateCurrentDocument(url: fileURL, text: newText)
+        }
     }
 
     private var parsedDocument: MarkdownParseResult {
@@ -70,7 +94,8 @@ struct MarkdownEditorView: View {
         case .preview:
             MarkdownPreview(
                 parsedDocument: parsedDocument,
-                navigationRequest: navigationRequest
+                navigationRequest: navigationRequest,
+                openWikiLink: openWikiTarget
             )
         case .split:
             if horizontalSizeClass == .compact {
@@ -79,7 +104,8 @@ struct MarkdownEditorView: View {
                     Divider()
                     MarkdownPreview(
                         parsedDocument: parsedDocument,
-                        navigationRequest: navigationRequest
+                        navigationRequest: navigationRequest,
+                        openWikiLink: openWikiTarget
                     )
                 }
             } else {
@@ -88,7 +114,8 @@ struct MarkdownEditorView: View {
                     Divider()
                     MarkdownPreview(
                         parsedDocument: parsedDocument,
-                        navigationRequest: navigationRequest
+                        navigationRequest: navigationRequest,
+                        openWikiLink: openWikiTarget
                     )
                 }
             }
@@ -103,6 +130,30 @@ struct MarkdownEditorView: View {
         )
         .background(Color.editorBackground)
         .accessibilityLabel("Markdown editor")
+    }
+
+    private func openWikiTarget(_ target: String) {
+        guard let destination = wikiLinkStore.destination(for: target) else { return }
+        openLinkedDocument(destination)
+    }
+
+    private func openLinkedDocument(_ url: URL) {
+#if os(macOS)
+        Task {
+            try? await openDocument(at: url)
+        }
+#else
+        openURL(url)
+#endif
+    }
+
+    private func refreshLinkIndex() {
+        Task {
+            await wikiLinkStore.load(
+                containing: fileURL,
+                currentText: document.text
+            )
+        }
     }
 }
 

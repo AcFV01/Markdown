@@ -8,6 +8,7 @@ struct MarkdownNavigationRequest: Equatable {
 struct MarkdownPreview: View {
     let parsedDocument: MarkdownParseResult
     let navigationRequest: MarkdownNavigationRequest?
+    let openWikiLink: (String) -> Void
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -33,6 +34,13 @@ struct MarkdownPreview: View {
             }
         }
         .accessibilityLabel("Markdown preview")
+        .environment(\.openURL, OpenURLAction { url in
+            guard let target = WikiLinkParser.target(from: url) else {
+                return .systemAction
+            }
+            openWikiLink(target)
+            return .handled
+        })
     }
 
     @ViewBuilder
@@ -117,11 +125,13 @@ struct MarkdownPreview: View {
     }
 
     private func inlineMarkdown(_ source: String) -> AttributedString {
+        let compatibleSource = WikiLinkParser.markdownCompatibleText(source)
         let options = AttributedString.MarkdownParsingOptions(
             interpretedSyntax: .inlineOnlyPreservingWhitespace,
             failurePolicy: .returnPartiallyParsedIfPossible
         )
-        return (try? AttributedString(markdown: source, options: options)) ?? AttributedString(source)
+        return (try? AttributedString(markdown: compatibleSource, options: options))
+            ?? AttributedString(source)
     }
 
     private func headingFont(_ level: Int) -> Font {

@@ -46,6 +46,10 @@ struct MarkdownSyntaxHighlighter {
             .foregroundColor: PlatformColor.systemBlue,
             .underlineStyle: NSUnderlineStyle.single.rawValue
         ])
+        add(pattern: "\\[\\[[^\\]]+\\]\\]", to: storage, attributes: [
+            .foregroundColor: PlatformColor.systemTeal,
+            .underlineStyle: NSUnderlineStyle.single.rawValue
+        ])
         add(pattern: "(?:\\*\\*|__)(?=\\S)(.+?)(?<=\\S)(?:\\*\\*|__)", to: storage, attributes: [
             .font: PlatformFont.monospacedSystemFont(ofSize: fontSize, weight: .bold)
         ])
