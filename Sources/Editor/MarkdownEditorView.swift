@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 enum EditorLayout: String, CaseIterable, Identifiable {
     case source
@@ -13,6 +14,7 @@ struct MarkdownEditorView: View {
     let fileURL: URL?
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @EnvironmentObject private var vaultAccess: VaultAccessStore
 #if os(macOS)
     @Environment(\.openDocument) private var openDocument
 #else
@@ -23,6 +25,7 @@ struct MarkdownEditorView: View {
     @State private var navigationRequest: MarkdownNavigationRequest?
     @State private var layout: EditorLayout = .split
     @State private var columnVisibility: NavigationSplitViewVisibility = .detailOnly
+    @State private var showingVaultImporter = false
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -30,19 +33,24 @@ struct MarkdownEditorView: View {
                 items: parsedDocument.outline,
                 outgoingLinks: wikiLinkStore.outgoingLinks,
                 backlinks: wikiLinkStore.backlinks,
+                workspaceName: workspaceName,
                 isIndexing: wikiLinkStore.isIndexing,
-                errorMessage: wikiLinkStore.errorMessage,
+                errorMessage: wikiLinkStore.errorMessage ?? vaultAccess.errorMessage,
                 selectHeading: { item in
                     navigationRequest = MarkdownNavigationRequest(
                         sourceLocation: item.sourceLocation
                     )
                 },
                 openDocument: openLinkedDocument,
+                openWikiLink: openWikiTarget,
                 refreshLinks: refreshLinkIndex
             )
         } detail: {
             VStack(spacing: 0) {
-                EditorFormattingBar(layout: $layout) { action in
+                EditorFormattingBar(
+                    layout: $layout,
+                    noteTitles: wikiLinkStore.noteTitles
+                ) { action in
                     formattingRequest = MarkdownFormattingRequest(action: action)
                 }
 
@@ -63,6 +71,22 @@ struct MarkdownEditorView: View {
         .navigationSplitViewStyle(.balanced)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    Button("Choose Knowledge Base…") {
+                        showingVaultImporter = true
+                    }
+                    if vaultAccess.vaultURL != nil {
+                        Button("Use Current Document Folder") {
+                            vaultAccess.useCurrentFolder()
+                        }
+                    }
+                } label: {
+                    Image(systemName: vaultAccess.vaultURL == nil ? "folder" : "folder.fill")
+                }
+                .help("Knowledge-base folder")
+            }
+
+            ToolbarItem(placement: .primaryAction) {
                 Button {
                     columnVisibility = columnVisibility == .all ? .detailOnly : .all
                 } label: {
@@ -71,10 +95,25 @@ struct MarkdownEditorView: View {
                 .help("Toggle outline")
             }
         }
-        .task(id: fileURL) {
+        .fileImporter(
+            isPresented: $showingVaultImporter,
+            allowedContentTypes: [.folder],
+            allowsMultipleSelection: false
+        ) { result in
+            switch result {
+            case let .success(urls):
+                if let url = urls.first {
+                    vaultAccess.selectVault(url)
+                }
+            case .failure:
+                break
+            }
+        }
+        .task(id: linkIndexIdentity) {
             await wikiLinkStore.load(
                 containing: fileURL,
-                currentText: document.text
+                currentText: document.text,
+                workspaceURL: vaultAccess.vaultURL
             )
         }
         .onChange(of: document.text) { _, newText in
@@ -84,6 +123,22 @@ struct MarkdownEditorView: View {
 
     private var parsedDocument: MarkdownParseResult {
         MarkdownParser.parse(document.text)
+    }
+
+    private var linkIndexIdentity: String {
+        [fileURL?.standardizedFileURL.path, vaultAccess.vaultURL?.standardizedFileURL.path]
+            .compactMap { $0 }
+            .joined(separator: "|")
+    }
+
+    private var workspaceName: String {
+        if let vaultURL = vaultAccess.vaultURL {
+            return "Knowledge Base: \(vaultURL.lastPathComponent)"
+        }
+        if let fileURL {
+            return "Folder: \(fileURL.deletingLastPathComponent().lastPathComponent)"
+        }
+        return "No Knowledge Base"
     }
 
     @ViewBuilder
@@ -133,8 +188,23 @@ struct MarkdownEditorView: View {
     }
 
     private func openWikiTarget(_ target: String) {
-        guard let destination = wikiLinkStore.destination(for: target) else { return }
-        openLinkedDocument(destination)
+        if let destination = wikiLinkStore.destination(for: target) {
+            openLinkedDocument(destination)
+            return
+        }
+        Task {
+            do {
+                let destination = try await wikiLinkStore.createNote(for: target)
+                await wikiLinkStore.load(
+                    containing: fileURL,
+                    currentText: document.text,
+                    workspaceURL: vaultAccess.vaultURL
+                )
+                openLinkedDocument(destination)
+            } catch {
+                wikiLinkStore.report(error)
+            }
+        }
     }
 
     private func openLinkedDocument(_ url: URL) {
@@ -151,7 +221,8 @@ struct MarkdownEditorView: View {
         Task {
             await wikiLinkStore.load(
                 containing: fileURL,
-                currentText: document.text
+                currentText: document.text,
+                workspaceURL: vaultAccess.vaultURL
             )
         }
     }
@@ -159,6 +230,7 @@ struct MarkdownEditorView: View {
 
 private struct EditorFormattingBar: View {
     @Binding var layout: EditorLayout
+    let noteTitles: [String]
     let perform: (MarkdownFormattingAction) -> Void
 
     var body: some View {
@@ -206,6 +278,21 @@ private struct EditorFormattingBar: View {
                 }
                 .keyboardShortcut("k", modifiers: .command)
                 .help("Link (⌘K)")
+
+                Menu {
+                    if noteTitles.isEmpty {
+                        Text("No indexed notes")
+                    } else {
+                        ForEach(noteTitles, id: \.self) { title in
+                            Button(title) {
+                                perform(.wikiLink(title))
+                            }
+                        }
+                    }
+                } label: {
+                    Image(systemName: "link.badge.plus")
+                }
+                .help("Insert wiki link")
 
                 Button {
                     perform(.inlineCode)
@@ -317,5 +404,6 @@ struct MarkdownEditorView_Previews: PreviewProvider {
             document: .constant(MarkdownDocument(text: "# Hello\n\nA Markdown document.")),
             fileURL: nil
         )
+        .environmentObject(VaultAccessStore())
     }
 }

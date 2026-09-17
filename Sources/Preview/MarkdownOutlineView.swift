@@ -20,16 +20,29 @@ struct MarkdownOutlineView: View {
     let items: [MarkdownOutlineItem]
     let outgoingLinks: [ResolvedWikiLink]
     let backlinks: [MarkdownBacklink]
+    let workspaceName: String
     let isIndexing: Bool
     let errorMessage: String?
     let selectHeading: (MarkdownOutlineItem) -> Void
     let openDocument: (URL) -> Void
+    let openWikiLink: (String) -> Void
     let refreshLinks: () -> Void
 
     @State private var section: SidebarSection = .outline
 
     var body: some View {
         VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Image(systemName: "folder")
+                Text(workspaceName)
+                    .lineLimit(1)
+                Spacer()
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 12)
+            .padding(.top, 10)
+
             HStack(spacing: 8) {
                 Picker("Sidebar", selection: $section) {
                     ForEach(SidebarSection.allCases) { section in
@@ -118,8 +131,11 @@ struct MarkdownOutlineView: View {
                 LazyVStack(spacing: 0) {
                     ForEach(outgoingLinks) { resolvedLink in
                         Button {
-                            guard let destination = resolvedLink.destinationURL else { return }
-                            openDocument(destination)
+                            if let destination = resolvedLink.destinationURL {
+                                openDocument(destination)
+                            } else {
+                                openWikiLink(resolvedLink.link.target)
+                            }
                         } label: {
                             HStack(alignment: .top, spacing: 10) {
                                 Image(systemName: resolvedLink.destinationURL == nil ? "questionmark.circle" : "link")
@@ -128,7 +144,7 @@ struct MarkdownOutlineView: View {
                                     Text(resolvedLink.link.displayText)
                                         .lineLimit(2)
                                         .foregroundStyle(.primary)
-                                    Text(resolvedLink.destinationURL == nil ? "Unresolved" : "Linked note")
+                                    Text(resolvedLink.destinationURL == nil ? "Create note" : "Linked note")
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                 }
@@ -139,7 +155,6 @@ struct MarkdownOutlineView: View {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
-                        .disabled(resolvedLink.destinationURL == nil)
                         Divider()
                     }
                 }

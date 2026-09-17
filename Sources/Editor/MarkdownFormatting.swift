@@ -12,6 +12,7 @@ enum MarkdownFormattingAction: Equatable {
     case orderedList
     case taskList
     case codeBlock
+    case wikiLink(String)
 }
 
 struct MarkdownFormattingRequest: Equatable {
@@ -51,6 +52,8 @@ struct MarkdownTextMutation {
             return prefixLines(text, selection: selection, prefix: "- [ ] ")
         case .codeBlock:
             return wrap(text, selection: selection, prefix: "```\n", suffix: "\n```", placeholder: "code")
+        case let .wikiLink(target):
+            return wikiLink(text, selection: selection, target: target)
         }
     }
 
@@ -94,6 +97,32 @@ struct MarkdownTextMutation {
             selection: NSRange(
                 location: safeSelection.location + ("[" as NSString).length,
                 length: (label as NSString).length
+            )
+        )
+    }
+
+    private static func wikiLink(
+        _ text: String,
+        selection: NSRange,
+        target: String
+    ) -> MarkdownTextMutation {
+        let source = text as NSString
+        let safeSelection = clamped(selection, to: source.length)
+        let selectedText = safeSelection.length == 0
+            ? nil
+            : source.substring(with: safeSelection)
+        let replacement = if let selectedText {
+            "[[\(target)|\(selectedText)]]"
+        } else {
+            "[[\(target)]]"
+        }
+        let result = source.mutableCopy() as! NSMutableString
+        result.replaceCharacters(in: safeSelection, with: replacement)
+        return MarkdownTextMutation(
+            text: result as String,
+            selection: NSRange(
+                location: safeSelection.location + (replacement as NSString).length,
+                length: 0
             )
         )
     }

@@ -19,6 +19,7 @@
 		A1000000000000000000000A /* WikiLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000D /* WikiLink.swift */; };
 		A1000000000000000000000B /* WorkspaceLinkIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000E /* WorkspaceLinkIndex.swift */; };
 		A1000000000000000000000C /* WikiLinkStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000F /* WikiLinkStore.swift */; };
+		A1000000000000000000000D /* VaultAccessStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000010 /* VaultAccessStore.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -37,6 +38,7 @@
 		A2000000000000000000000D /* WikiLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WikiLink.swift; sourceTree = "<group>"; };
 		A2000000000000000000000E /* WorkspaceLinkIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceLinkIndex.swift; sourceTree = "<group>"; };
 		A2000000000000000000000F /* WikiLinkStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WikiLinkStore.swift; sourceTree = "<group>"; };
+		A20000000000000000000010 /* VaultAccessStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultAccessStore.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -128,6 +130,7 @@
 		A40000000000000000000009 /* Links */ = {
 			isa = PBXGroup;
 			children = (
+				A20000000000000000000010 /* VaultAccessStore.swift */,
 				A2000000000000000000000D /* WikiLink.swift */,
 				A2000000000000000000000E /* WorkspaceLinkIndex.swift */,
 				A2000000000000000000000F /* WikiLinkStore.swift */,
@@ -215,6 +218,7 @@
 				A1000000000000000000000A /* WikiLink.swift in Sources */,
 				A1000000000000000000000B /* WorkspaceLinkIndex.swift in Sources */,
 				A1000000000000000000000C /* WikiLinkStore.swift in Sources */,
+				A1000000000000000000000D /* VaultAccessStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

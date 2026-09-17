@@ -27,10 +27,12 @@ struct IndexedMarkdownNote: Equatable, Sendable {
 
 struct WorkspaceLinkIndex: Sendable {
     private(set) var notes: [IndexedMarkdownNote]
+    let rootDirectory: URL?
     private let destinations: [String: URL]
 
-    init(notes: [IndexedMarkdownNote]) {
+    init(notes: [IndexedMarkdownNote], rootDirectory: URL? = nil) {
         self.notes = notes.sorted { $0.url.path < $1.url.path }
+        self.rootDirectory = rootDirectory
         var destinations: [String: URL] = [:]
         for note in self.notes {
             destinations[note.relativePathKey] = destinations[note.relativePathKey] ?? note.url
@@ -39,17 +41,33 @@ struct WorkspaceLinkIndex: Sendable {
         self.destinations = destinations
     }
 
-    static func build(containing currentURL: URL, currentText: String) async throws -> WorkspaceLinkIndex {
+    var noteTitles: [String] {
+        Array(Set(notes.map(\.title))).sorted {
+            $0.localizedStandardCompare($1) == .orderedAscending
+        }
+    }
+
+    static func build(
+        containing currentURL: URL,
+        currentText: String,
+        workspaceURL: URL? = nil
+    ) async throws -> WorkspaceLinkIndex {
         try await Task.detached(priority: .utility) {
-            try scanDirectory(containing: currentURL, currentText: currentText)
+            try scanDirectory(
+                containing: currentURL,
+                currentText: currentText,
+                workspaceURL: workspaceURL
+            )
         }.value
     }
 
     private static func scanDirectory(
         containing currentURL: URL,
-        currentText: String
+        currentText: String,
+        workspaceURL: URL?
     ) throws -> WorkspaceLinkIndex {
-        let directory = currentURL.deletingLastPathComponent()
+        let directory = workspaceURL?.standardizedFileURL
+            ?? currentURL.deletingLastPathComponent()
         let didAccess = directory.startAccessingSecurityScopedResource()
         defer {
             if didAccess {
@@ -93,15 +111,15 @@ struct WorkspaceLinkIndex: Sendable {
         if !notes.contains(where: { $0.url.standardizedFileURL.path == currentPath }) {
             notes.append(makeNote(url: currentURL, content: currentText, relativeTo: directory))
         }
-        return WorkspaceLinkIndex(notes: notes)
+        return WorkspaceLinkIndex(notes: notes, rootDirectory: directory)
     }
 
     func updatingNote(at url: URL, content: String) -> WorkspaceLinkIndex {
         let path = url.standardizedFileURL.path
-        let directory = url.deletingLastPathComponent()
+        let directory = rootDirectory ?? url.deletingLastPathComponent()
         var updated = notes.filter { $0.url.standardizedFileURL.path != path }
         updated.append(Self.makeNote(url: url, content: content, relativeTo: directory))
-        return WorkspaceLinkIndex(notes: updated)
+        return WorkspaceLinkIndex(notes: updated, rootDirectory: directory)
     }
 
     func outgoingLinks(from url: URL) -> [ResolvedWikiLink] {
