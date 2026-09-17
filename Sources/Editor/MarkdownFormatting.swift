@@ -206,6 +206,7 @@ struct MarkdownTextMutation {
 
 struct WikiLinkCompletionContext: Equatable {
     let query: String
+    let noteTarget: String?
     let replacementRange: NSRange
 
     static func detect(in text: String, selection: NSRange) -> WikiLinkCompletionContext? {
@@ -223,12 +224,30 @@ struct WikiLinkCompletionContext: Equatable {
             location: queryLocation,
             length: selection.location - queryLocation
         )
-        let query = source.substring(with: queryRange)
-        let invalidCharacters = CharacterSet(charactersIn: "[]|#\n\r")
-        guard query.rangeOfCharacter(from: invalidCharacters) == nil else { return nil }
+        let fragment = source.substring(with: queryRange)
+        let invalidCharacters = CharacterSet(charactersIn: "[]|\n\r")
+        guard fragment.rangeOfCharacter(from: invalidCharacters) == nil else { return nil }
+
+        let components = fragment.split(
+            separator: "#",
+            maxSplits: 1,
+            omittingEmptySubsequences: false
+        )
+        let noteTarget: String?
+        let query: String
+        if components.count == 2 {
+            let target = String(components[0]).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !target.isEmpty else { return nil }
+            noteTarget = target
+            query = String(components[1])
+        } else {
+            noteTarget = nil
+            query = fragment
+        }
 
         return WikiLinkCompletionContext(
             query: query,
+            noteTarget: noteTarget,
             replacementRange: NSRange(
                 location: openingRange.location,
                 length: selection.location - openingRange.location

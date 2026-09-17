@@ -195,6 +195,15 @@ struct WorkspaceLinkIndex: Sendable {
         return destinations[titleKey]
     }
 
+    func headings(for target: String) -> [String] {
+        guard let destination = destination(for: target),
+              let note = note(at: destination) else { return [] }
+        var seen: Set<String> = []
+        return Self.headings(in: note.content).filter { heading in
+            seen.insert(heading).inserted
+        }
+    }
+
     private func note(at url: URL) -> IndexedMarkdownNote? {
         let path = url.standardizedFileURL.path
         return notes.first { $0.url.standardizedFileURL.path == path }
@@ -236,6 +245,20 @@ struct WorkspaceLinkIndex: Sendable {
 
     private static func isMarkdownFile(_ url: URL) -> Bool {
         ["md", "markdown", "mdown"].contains(url.pathExtension.lowercased())
+    }
+
+    private static func headings(in content: String) -> [String] {
+        content.components(separatedBy: "\n").compactMap { line in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            let prefix = trimmed.prefix { $0 == "#" }
+            guard (1...6).contains(prefix.count),
+                  trimmed.dropFirst(prefix.count).first?.isWhitespace == true else {
+                return nil
+            }
+            let title = trimmed.dropFirst(prefix.count)
+                .trimmingCharacters(in: .whitespaces)
+            return title.isEmpty ? nil : title
+        }
     }
 
     private static func noteExcerpt(from content: String) -> String {

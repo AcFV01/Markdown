@@ -28,7 +28,7 @@ struct MarkdownOutlineView: View {
     let errorMessage: String?
     let selectHeading: (MarkdownOutlineItem) -> Void
     let openDocument: (URL) -> Void
-    let openWikiLink: (String) -> Void
+    let openWikiLink: (WikiLinkDestination) -> Void
     let refreshLinks: () -> Void
 
     @State private var section: SidebarSection = .notes
@@ -218,11 +218,12 @@ struct MarkdownOutlineView: View {
                 LazyVStack(spacing: 0) {
                     ForEach(outgoingLinks) { resolvedLink in
                         Button {
-                            if let destination = resolvedLink.destinationURL {
-                                openDocument(destination)
-                            } else {
-                                openWikiLink(resolvedLink.link.target)
-                            }
+                            openWikiLink(
+                                WikiLinkDestination(
+                                    target: resolvedLink.link.target,
+                                    heading: resolvedLink.link.heading
+                                )
+                            )
                         } label: {
                             HStack(alignment: .top, spacing: 10) {
                                 Image(systemName: resolvedLink.destinationURL == nil ? "questionmark.circle" : "link")

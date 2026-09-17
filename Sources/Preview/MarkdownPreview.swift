@@ -8,7 +8,7 @@ struct MarkdownNavigationRequest: Equatable {
 struct MarkdownPreview: View {
     let parsedDocument: MarkdownParseResult
     let navigationRequest: MarkdownNavigationRequest?
-    let openWikiLink: (String) -> Void
+    let openWikiLink: (WikiLinkDestination) -> Void
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -35,10 +35,10 @@ struct MarkdownPreview: View {
         }
         .accessibilityLabel("Markdown preview")
         .environment(\.openURL, OpenURLAction { url in
-            guard let target = WikiLinkParser.target(from: url) else {
+            guard let destination = WikiLinkParser.destination(from: url) else {
                 return .systemAction
             }
-            openWikiLink(target)
+            openWikiLink(destination)
             return .handled
         })
     }

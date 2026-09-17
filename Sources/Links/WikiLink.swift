@@ -20,6 +20,11 @@ struct WikiLink: Identifiable, Equatable, Sendable {
     }
 }
 
+struct WikiLinkDestination: Equatable, Sendable {
+    let target: String
+    let heading: String?
+}
+
 enum WikiLinkParser {
     private static let pattern = #"\[\[([^\]|#]+?)(?:#([^\]|]+?))?(?:\|([^\]]+?))?\]\]"#
 
@@ -66,12 +71,16 @@ enum WikiLinkParser {
         return result as String
     }
 
-    static func target(from url: URL) -> String? {
+    static func destination(from url: URL) -> WikiLinkDestination? {
         guard url.scheme == "markdown-editor", url.host == "wiki" else { return nil }
-        return URLComponents(url: url, resolvingAgainstBaseURL: false)?
-            .queryItems?
+        let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems
+        guard let target = queryItems?
             .first(where: { $0.name == "target" })?
+            .value else { return nil }
+        let heading = queryItems?
+            .first(where: { $0.name == "heading" })?
             .value
+        return WikiLinkDestination(target: target, heading: heading)
     }
 
     static func normalizedTarget(_ target: String) -> String {

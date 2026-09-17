@@ -57,6 +57,10 @@ final class WikiLinkStore: ObservableObject {
         index.destination(for: target)
     }
 
+    func headings(for target: String) -> [String] {
+        index.headings(for: target)
+    }
+
     func report(_ error: Error) {
         errorMessage = error.localizedDescription
     }
@@ -97,6 +101,37 @@ final class WikiLinkStore: ObservableObject {
         notes = []
         isIndexing = false
         errorMessage = nil
+    }
+}
+
+struct PendingWikiNavigation: Identifiable, Equatable {
+    let id = UUID()
+    let destinationURL: URL
+    let heading: String
+}
+
+@MainActor
+final class WikiNavigationStore: ObservableObject {
+    @Published private(set) var pending: PendingWikiNavigation?
+
+    func request(destinationURL: URL, heading: String) {
+        pending = PendingWikiNavigation(
+            destinationURL: destinationURL.standardizedFileURL,
+            heading: heading
+        )
+    }
+
+    func navigation(for fileURL: URL?) -> PendingWikiNavigation? {
+        guard let fileURL, let pending,
+              fileURL.standardizedFileURL.path == pending.destinationURL.path else {
+            return nil
+        }
+        return pending
+    }
+
+    func consume(_ navigation: PendingWikiNavigation) {
+        guard pending?.id == navigation.id else { return }
+        pending = nil
     }
 }
 

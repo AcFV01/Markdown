@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct MarkdownEditorApp: App {
     @StateObject private var vaultAccess = VaultAccessStore()
+    @StateObject private var wikiNavigation = WikiNavigationStore()
 
     var body: some Scene {
         DocumentGroup(newDocument: MarkdownDocument()) { configuration in
@@ -11,6 +12,7 @@ struct MarkdownEditorApp: App {
                 fileURL: configuration.fileURL
             )
             .environmentObject(vaultAccess)
+            .environmentObject(wikiNavigation)
         }
     }
 }

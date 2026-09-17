@@ -15,6 +15,7 @@ struct MarkdownEditorView: View {
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @EnvironmentObject private var vaultAccess: VaultAccessStore
+    @EnvironmentObject private var wikiNavigation: WikiNavigationStore
 #if os(macOS)
     @Environment(\.openDocument) private var openDocument
 #else
@@ -43,7 +44,7 @@ struct MarkdownEditorView: View {
                         sourceLocation: item.sourceLocation
                     )
                 },
-                openDocument: openLinkedDocument,
+                openDocument: { openLinkedDocument($0) },
                 openWikiLink: openWikiTarget,
                 refreshLinks: refreshLinkIndex
             )
@@ -117,9 +118,16 @@ struct MarkdownEditorView: View {
                 currentText: document.text,
                 workspaceURL: vaultAccess.vaultURL
             )
+            navigateToPendingHeadingIfNeeded()
         }
         .onChange(of: document.text) { _, newText in
             wikiLinkStore.updateCurrentDocument(url: fileURL, text: newText)
+        }
+        .onChange(of: wikiNavigation.pending?.id) { _, _ in
+            navigateToPendingHeadingIfNeeded()
+        }
+        .onAppear {
+            navigateToPendingHeadingIfNeeded()
         }
     }
 
@@ -194,6 +202,7 @@ struct MarkdownEditorView: View {
                 WikiLinkCompletionPanel(
                     context: wikiLinkCompletion,
                     noteTargets: wikiLinkStore.noteLinkTargets,
+                    headingTargets: headingSuggestions(for: wikiLinkCompletion),
                     selectTarget: completeWikiLink
                 )
                 .padding(12)
@@ -212,27 +221,30 @@ struct MarkdownEditorView: View {
         self.wikiLinkCompletion = nil
     }
 
-    private func openWikiTarget(_ target: String) {
-        if let destination = wikiLinkStore.destination(for: target) {
-            openLinkedDocument(destination)
+    private func openWikiTarget(_ link: WikiLinkDestination) {
+        if let destination = wikiLinkStore.destination(for: link.target) {
+            openLinkedDocument(destination, heading: link.heading)
             return
         }
         Task {
             do {
-                let destination = try await wikiLinkStore.createNote(for: target)
+                let destination = try await wikiLinkStore.createNote(for: link.target)
                 await wikiLinkStore.load(
                     containing: fileURL,
                     currentText: document.text,
                     workspaceURL: vaultAccess.vaultURL
                 )
-                openLinkedDocument(destination)
+                openLinkedDocument(destination, heading: link.heading)
             } catch {
                 wikiLinkStore.report(error)
             }
         }
     }
 
-    private func openLinkedDocument(_ url: URL) {
+    private func openLinkedDocument(_ url: URL, heading: String? = nil) {
+        if let heading, !heading.isEmpty {
+            wikiNavigation.request(destinationURL: url, heading: heading)
+        }
 #if os(macOS)
         Task {
             try? await openDocument(at: url)
@@ -240,6 +252,27 @@ struct MarkdownEditorView: View {
 #else
         openURL(url)
 #endif
+    }
+
+    private func headingSuggestions(for context: WikiLinkCompletionContext) -> [String] {
+        guard let noteTarget = context.noteTarget else { return [] }
+        return wikiLinkStore.headings(for: noteTarget)
+    }
+
+    private func navigateToPendingHeadingIfNeeded() {
+        guard let navigation = wikiNavigation.navigation(for: fileURL) else { return }
+        let expectedHeading = normalizedHeading(navigation.heading)
+        if let item = parsedDocument.outline.first(where: {
+            normalizedHeading($0.title) == expectedHeading
+        }) {
+            navigationRequest = MarkdownNavigationRequest(sourceLocation: item.sourceLocation)
+        }
+        wikiNavigation.consume(navigation)
+    }
+
+    private func normalizedHeading(_ heading: String) -> String {
+        heading.trimmingCharacters(in: .whitespacesAndNewlines)
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
     }
 
     private func refreshLinkIndex() {
@@ -377,6 +410,7 @@ private struct EditorFormattingBar: View {
 private struct WikiLinkCompletionPanel: View {
     let context: WikiLinkCompletionContext
     let noteTargets: [String]
+    let headingTargets: [String]
     let selectTarget: (String) -> Void
 
     private var query: String {
@@ -384,23 +418,44 @@ private struct WikiLinkCompletionPanel: View {
     }
 
     private var matches: [String] {
+        let availableTargets = context.noteTarget == nil ? noteTargets : headingTargets
         let candidates = query.isEmpty
-            ? noteTargets
-            : noteTargets.filter { $0.localizedCaseInsensitiveContains(query) }
+            ? availableTargets
+            : availableTargets.filter { $0.localizedCaseInsensitiveContains(query) }
         return Array(candidates.prefix(6))
     }
 
     private var newTarget: String? {
+        let availableTargets = context.noteTarget == nil ? noteTargets : headingTargets
         guard !query.isEmpty,
-              !noteTargets.contains(where: { $0.caseInsensitiveCompare(query) == .orderedSame }) else {
+              !availableTargets.contains(where: { $0.caseInsensitiveCompare(query) == .orderedSame }) else {
             return nil
         }
-        return query
+        return completedTarget(query)
+    }
+
+    private var panelTitle: String {
+        if let noteTarget = context.noteTarget {
+            return "Heading in \(noteTarget)"
+        }
+        return "Link to note"
+    }
+
+    private var emptyMessage: String {
+        if context.noteTarget != nil {
+            return "No headings in this note"
+        }
+        return "Type a note name"
+    }
+
+    private func completedTarget(_ value: String) -> String {
+        guard let noteTarget = context.noteTarget else { return value }
+        return "\(noteTarget)#\(value)"
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Label("Link to note", systemImage: "link")
+            Label(panelTitle, systemImage: context.noteTarget == nil ? "link" : "number")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 12)
@@ -409,16 +464,16 @@ private struct WikiLinkCompletionPanel: View {
             Divider()
 
             if matches.isEmpty && newTarget == nil {
-                Text("Type a note name")
+                Text(emptyMessage)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(12)
             } else {
-                ForEach(matches, id: \.self) { target in
+                ForEach(matches, id: \.self) { match in
                     completionButton(
-                        title: target,
-                        systemImage: "doc.text",
-                        target: target
+                        title: context.noteTarget == nil ? match : "#\(match)",
+                        systemImage: context.noteTarget == nil ? "doc.text" : "number",
+                        target: completedTarget(match)
                     )
                 }
 
@@ -427,7 +482,9 @@ private struct WikiLinkCompletionPanel: View {
                         Divider()
                     }
                     completionButton(
-                        title: "Link to \(newTarget)",
+                        title: context.noteTarget == nil
+                            ? "Link to \(query)"
+                            : "Link to #\(query)",
                         systemImage: "plus.circle",
                         target: newTarget
                     )
@@ -520,5 +577,6 @@ struct MarkdownEditorView_Previews: PreviewProvider {
             fileURL: nil
         )
         .environmentObject(VaultAccessStore())
+        .environmentObject(WikiNavigationStore())
     }
 }
