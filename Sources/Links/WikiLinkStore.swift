@@ -6,6 +6,7 @@ final class WikiLinkStore: ObservableObject {
     @Published private(set) var outgoingLinks: [ResolvedWikiLink] = []
     @Published private(set) var backlinks: [MarkdownBacklink] = []
     @Published private(set) var noteTitles: [String] = []
+    @Published private(set) var notes: [KnowledgeNote] = []
     @Published private(set) var isIndexing = false
     @Published private(set) var errorMessage: String?
 
@@ -81,6 +82,7 @@ final class WikiLinkStore: ObservableObject {
         outgoingLinks = index.outgoingLinks(from: currentURL)
         backlinks = index.backlinks(to: currentURL)
         noteTitles = index.noteTitles
+        notes = index.knowledgeNotes
     }
 
     private func clear() {
@@ -89,6 +91,7 @@ final class WikiLinkStore: ObservableObject {
         outgoingLinks = []
         backlinks = []
         noteTitles = []
+        notes = []
         isIndexing = false
         errorMessage = nil
     }

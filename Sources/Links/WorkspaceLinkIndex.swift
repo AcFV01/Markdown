@@ -16,9 +16,20 @@ struct MarkdownBacklink: Identifiable, Equatable, Sendable {
     let sourceRange: NSRange
 }
 
+struct KnowledgeNote: Identifiable, Equatable, Sendable {
+    var id: String { url.standardizedFileURL.path }
+
+    let url: URL
+    let title: String
+    let relativePath: String
+    let excerpt: String
+    let searchableText: String
+}
+
 struct IndexedMarkdownNote: Equatable, Sendable {
     let url: URL
     let title: String
+    let relativePath: String
     let relativePathKey: String
     let titleKey: String
     let content: String
@@ -44,6 +55,21 @@ struct WorkspaceLinkIndex: Sendable {
     var noteTitles: [String] {
         Array(Set(notes.map(\.title))).sorted {
             $0.localizedStandardCompare($1) == .orderedAscending
+        }
+    }
+
+    var knowledgeNotes: [KnowledgeNote] {
+        notes.map { note in
+            KnowledgeNote(
+                url: note.url,
+                title: note.title,
+                relativePath: note.relativePath,
+                excerpt: Self.noteExcerpt(from: note.content),
+                searchableText: "\(note.relativePath)\n\(note.content)"
+            )
+        }
+        .sorted {
+            $0.relativePath.localizedStandardCompare($1.relativePath) == .orderedAscending
         }
     }
 
@@ -194,6 +220,7 @@ struct WorkspaceLinkIndex: Sendable {
         return IndexedMarkdownNote(
             url: url,
             title: title,
+            relativePath: relativePath,
             relativePathKey: WikiLinkParser.normalizedTarget(relativePath),
             titleKey: WikiLinkParser.normalizedTarget(title),
             content: content,
@@ -203,5 +230,22 @@ struct WorkspaceLinkIndex: Sendable {
 
     private static func isMarkdownFile(_ url: URL) -> Bool {
         ["md", "markdown", "mdown"].contains(url.pathExtension.lowercased())
+    }
+
+    private static func noteExcerpt(from content: String) -> String {
+        let lines = content
+            .split(whereSeparator: { $0.isNewline })
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        if let bodyLine = lines.first(where: { !$0.isEmpty && !$0.hasPrefix("#") }) {
+            return bodyLine
+        }
+        return lines
+            .first(where: { !$0.isEmpty })?
+            .replacingOccurrences(
+                of: #"^#{1,6}\s+"#,
+                with: "",
+                options: .regularExpression
+            )
+            ?? "Empty note"
     }
 }

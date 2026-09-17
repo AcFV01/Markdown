@@ -1,6 +1,7 @@
 import SwiftUI
 
 private enum SidebarSection: String, CaseIterable, Identifiable {
+    case notes
     case outline
     case links
     case backlinks
@@ -9,6 +10,7 @@ private enum SidebarSection: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
+        case .notes: "Notes"
         case .outline: "Outline"
         case .links: "Links"
         case .backlinks: "Backlinks"
@@ -18,6 +20,7 @@ private enum SidebarSection: String, CaseIterable, Identifiable {
 
 struct MarkdownOutlineView: View {
     let items: [MarkdownOutlineItem]
+    let notes: [KnowledgeNote]
     let outgoingLinks: [ResolvedWikiLink]
     let backlinks: [MarkdownBacklink]
     let workspaceName: String
@@ -28,7 +31,8 @@ struct MarkdownOutlineView: View {
     let openWikiLink: (String) -> Void
     let refreshLinks: () -> Void
 
-    @State private var section: SidebarSection = .outline
+    @State private var section: SidebarSection = .notes
+    @State private var noteSearchText = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -77,6 +81,8 @@ struct MarkdownOutlineView: View {
             }
 
             switch section {
+            case .notes:
+                noteList
             case .outline:
                 outlineList
             case .links:
@@ -87,6 +93,87 @@ struct MarkdownOutlineView: View {
         }
         .navigationTitle("Knowledge")
         .navigationSplitViewColumnWidth(min: 210, ideal: 260, max: 360)
+    }
+
+    @ViewBuilder
+    private var noteList: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField("Search notes", text: $noteSearchText)
+                    .textFieldStyle(.plain)
+                if !noteSearchText.isEmpty {
+                    Button {
+                        noteSearchText = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Clear search")
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+
+            Divider()
+
+            if notes.isEmpty {
+                ContentUnavailableView(
+                    "No Notes",
+                    systemImage: "doc.text.magnifyingglass",
+                    description: Text("Markdown files in this folder will appear here.")
+                )
+            } else if filteredNotes.isEmpty {
+                ContentUnavailableView.search(text: noteSearchText)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(filteredNotes) { note in
+                            Button {
+                                openDocument(note.url)
+                            } label: {
+                                HStack(alignment: .top, spacing: 10) {
+                                    Image(systemName: "doc.text")
+                                        .foregroundStyle(.secondary)
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(note.title)
+                                            .lineLimit(1)
+                                            .foregroundStyle(.primary)
+                                        if note.relativePath != note.title {
+                                            Text(note.relativePath)
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                                .lineLimit(1)
+                                        }
+                                        Text(note.excerpt)
+                                            .font(.caption)
+                                            .foregroundStyle(.tertiary)
+                                            .lineLimit(2)
+                                    }
+                                    Spacer(minLength: 0)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 9)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            Divider()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var filteredNotes: [KnowledgeNote] {
+        let query = noteSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return notes }
+        return notes.filter { note in
+            note.searchableText.localizedCaseInsensitiveContains(query)
+        }
     }
 
     @ViewBuilder

@@ -31,6 +31,7 @@ struct MarkdownEditorView: View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             MarkdownOutlineView(
                 items: parsedDocument.outline,
+                notes: wikiLinkStore.notes,
                 outgoingLinks: wikiLinkStore.outgoingLinks,
                 backlinks: wikiLinkStore.backlinks,
                 workspaceName: workspaceName,
