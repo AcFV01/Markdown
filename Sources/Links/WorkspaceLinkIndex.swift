@@ -26,6 +26,33 @@ struct KnowledgeNote: Identifiable, Equatable, Sendable {
     let searchableText: String
 }
 
+struct KnowledgeGraphNode: Identifiable, Equatable, Sendable {
+    var id: String { url.standardizedFileURL.path }
+
+    let url: URL
+    let title: String
+    let relativePath: String
+}
+
+struct KnowledgeGraphEdge: Identifiable, Equatable, Sendable {
+    var id: String { "\(sourceID)->\(destinationID)" }
+
+    let sourceID: String
+    let destinationID: String
+}
+
+struct KnowledgeGraphSnapshot: Equatable, Sendable {
+    let currentNodeID: String?
+    let nodes: [KnowledgeGraphNode]
+    let edges: [KnowledgeGraphEdge]
+
+    static let empty = KnowledgeGraphSnapshot(
+        currentNodeID: nil,
+        nodes: [],
+        edges: []
+    )
+}
+
 struct IndexedMarkdownNote: Equatable, Sendable {
     let url: URL
     let title: String
@@ -184,6 +211,55 @@ struct WorkspaceLinkIndex: Sendable {
         }
     }
 
+    func localGraph(around url: URL) -> KnowledgeGraphSnapshot {
+        guard let currentNote = note(at: url) else { return .empty }
+        let currentID = currentNote.url.standardizedFileURL.path
+        var nodesByID: [String: KnowledgeGraphNode] = [
+            currentID: Self.graphNode(from: currentNote)
+        ]
+        var edgesByID: [String: KnowledgeGraphEdge] = [:]
+
+        func addEdge(from source: IndexedMarkdownNote, to destination: IndexedMarkdownNote) {
+            let sourceID = source.url.standardizedFileURL.path
+            let destinationID = destination.url.standardizedFileURL.path
+            guard sourceID != destinationID else { return }
+            nodesByID[sourceID] = Self.graphNode(from: source)
+            nodesByID[destinationID] = Self.graphNode(from: destination)
+            let edge = KnowledgeGraphEdge(
+                sourceID: sourceID,
+                destinationID: destinationID
+            )
+            edgesByID[edge.id] = edge
+        }
+
+        for link in currentNote.links {
+            guard let destinationURL = destination(for: link.target),
+                  let destinationNote = note(at: destinationURL) else { continue }
+            addEdge(from: currentNote, to: destinationNote)
+        }
+
+        for sourceNote in notes where sourceNote.url.standardizedFileURL.path != currentID {
+            for link in sourceNote.links {
+                guard destination(for: link.target)?.standardizedFileURL.path == currentID else {
+                    continue
+                }
+                addEdge(from: sourceNote, to: currentNote)
+            }
+        }
+
+        let nodes = nodesByID.values.sorted { lhs, rhs in
+            if lhs.id == currentID { return true }
+            if rhs.id == currentID { return false }
+            return lhs.relativePath.localizedStandardCompare(rhs.relativePath) == .orderedAscending
+        }
+        let edges = edgesByID.values.sorted { $0.id < $1.id }
+        return KnowledgeGraphSnapshot(
+            currentNodeID: currentID,
+            nodes: nodes,
+            edges: edges
+        )
+    }
+
     func destination(for target: String) -> URL? {
         let key = WikiLinkParser.normalizedTarget(target)
         if let exact = destinations[key] {
@@ -240,6 +316,14 @@ struct WorkspaceLinkIndex: Sendable {
             titleKey: WikiLinkParser.normalizedTarget(title),
             content: content,
             links: WikiLinkParser.links(in: content)
+        )
+    }
+
+    private static func graphNode(from note: IndexedMarkdownNote) -> KnowledgeGraphNode {
+        KnowledgeGraphNode(
+            url: note.url,
+            title: note.title,
+            relativePath: note.relativePath
         )
     }
 

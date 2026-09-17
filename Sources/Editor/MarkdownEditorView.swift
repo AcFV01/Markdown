@@ -36,6 +36,7 @@ struct MarkdownEditorView: View {
                 notes: wikiLinkStore.notes,
                 outgoingLinks: wikiLinkStore.outgoingLinks,
                 backlinks: wikiLinkStore.backlinks,
+                localGraph: wikiLinkStore.localGraph,
                 workspaceName: workspaceName,
                 isIndexing: wikiLinkStore.isIndexing,
                 errorMessage: wikiLinkStore.errorMessage ?? vaultAccess.errorMessage,

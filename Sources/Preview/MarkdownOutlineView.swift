@@ -5,6 +5,7 @@ private enum SidebarSection: String, CaseIterable, Identifiable {
     case outline
     case links
     case backlinks
+    case graph
 
     var id: Self { self }
 
@@ -14,6 +15,17 @@ private enum SidebarSection: String, CaseIterable, Identifiable {
         case .outline: "Outline"
         case .links: "Links"
         case .backlinks: "Backlinks"
+        case .graph: "Graph"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .notes: "doc.text"
+        case .outline: "list.bullet.indent"
+        case .links: "link"
+        case .backlinks: "arrowshape.turn.up.backward"
+        case .graph: "point.3.connected.trianglepath.dotted"
         }
     }
 }
@@ -23,6 +35,7 @@ struct MarkdownOutlineView: View {
     let notes: [KnowledgeNote]
     let outgoingLinks: [ResolvedWikiLink]
     let backlinks: [MarkdownBacklink]
+    let localGraph: KnowledgeGraphSnapshot
     let workspaceName: String
     let isIndexing: Bool
     let errorMessage: String?
@@ -53,7 +66,9 @@ struct MarkdownOutlineView: View {
             HStack(spacing: 8) {
                 Picker("Sidebar", selection: $section) {
                     ForEach(SidebarSection.allCases) { section in
-                        Text(section.title).tag(section)
+                        Label(section.title, systemImage: section.systemImage)
+                            .labelStyle(.iconOnly)
+                            .tag(section)
                     }
                 }
                 .pickerStyle(.segmented)
@@ -102,6 +117,11 @@ struct MarkdownOutlineView: View {
                 outgoingList
             case .backlinks:
                 backlinkList
+            case .graph:
+                LocalKnowledgeGraphView(
+                    graph: localGraph,
+                    openDocument: openDocument
+                )
             }
         }
         .navigationTitle("Knowledge")
@@ -338,6 +358,167 @@ struct MarkdownOutlineView: View {
                     }
                 }
             }
+        }
+    }
+}
+
+private struct LocalKnowledgeGraphView: View {
+    let graph: KnowledgeGraphSnapshot
+    let openDocument: (URL) -> Void
+
+    var body: some View {
+        if graph.nodes.count <= 1 {
+            ContentUnavailableView(
+                "No Connected Notes",
+                systemImage: "point.3.connected.trianglepath.dotted",
+                description: Text("Outgoing links and backlinks will appear in the local graph.")
+            )
+        } else {
+            GeometryReader { geometry in
+                let positions = nodePositions(in: geometry.size)
+
+                ZStack {
+                    Canvas { context, _ in
+                        drawEdges(context: &context, positions: positions)
+                    }
+
+                    ForEach(graph.nodes) { node in
+                        graphNode(node)
+                            .position(positions[node.id] ?? .zero)
+                    }
+
+                    VStack {
+                        HStack(spacing: 12) {
+                            legend(color: .accentColor, title: "Outgoing")
+                            legend(color: .orange, title: "Incoming")
+                        }
+                        .padding(8)
+                        .background(.thinMaterial, in: Capsule())
+
+                        Spacer()
+
+                        Text("\(graph.nodes.count) notes · \(graph.edges.count) links")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(10)
+                }
+            }
+            .padding(4)
+        }
+    }
+
+    private func graphNode(_ node: KnowledgeGraphNode) -> some View {
+        let isCurrent = node.id == graph.currentNodeID
+        return Button {
+            if !isCurrent {
+                openDocument(node.url)
+            }
+        } label: {
+            VStack(spacing: 5) {
+                Circle()
+                    .fill(isCurrent ? Color.accentColor : Color.secondary.opacity(0.18))
+                    .frame(width: isCurrent ? 38 : 32, height: isCurrent ? 38 : 32)
+                    .overlay {
+                        Image(systemName: isCurrent ? "doc.text.fill" : "doc.text")
+                            .foregroundStyle(isCurrent ? .white : .primary)
+                            .font(.caption)
+                    }
+                Text(node.title)
+                    .font(isCurrent ? .caption.weight(.semibold) : .caption2)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.primary)
+            }
+            .frame(width: 88)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(node.relativePath)
+        .accessibilityLabel(isCurrent ? "Current note, \(node.title)" : "Open note, \(node.title)")
+    }
+
+    private func legend(color: Color, title: String) -> some View {
+        HStack(spacing: 4) {
+            Circle()
+                .fill(color)
+                .frame(width: 6, height: 6)
+            Text(title)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func nodePositions(in size: CGSize) -> [String: CGPoint] {
+        guard let currentNodeID = graph.currentNodeID else { return [:] }
+        let center = CGPoint(x: size.width / 2, y: size.height / 2)
+        let neighbors = graph.nodes.filter { $0.id != currentNodeID }
+        let horizontalRadius = max(58, size.width / 2 - 54)
+        let verticalRadius = max(70, size.height / 2 - 84)
+        var positions: [String: CGPoint] = [currentNodeID: center]
+
+        for (index, node) in neighbors.enumerated() {
+            let angle = (Double(index) / Double(max(neighbors.count, 1))) * 2 * Double.pi
+                - Double.pi / 2
+            positions[node.id] = CGPoint(
+                x: center.x + CGFloat(cos(angle)) * horizontalRadius,
+                y: center.y + CGFloat(sin(angle)) * verticalRadius
+            )
+        }
+        return positions
+    }
+
+    private func drawEdges(
+        context: inout GraphicsContext,
+        positions: [String: CGPoint]
+    ) {
+        guard let currentNodeID = graph.currentNodeID else { return }
+
+        for edge in graph.edges {
+            guard let source = positions[edge.sourceID],
+                  let destination = positions[edge.destinationID] else { continue }
+            let dx = destination.x - source.x
+            let dy = destination.y - source.y
+            let length = max(sqrt(dx * dx + dy * dy), 1)
+            let unitX = dx / length
+            let unitY = dy / length
+            let perpendicularX = -unitY
+            let perpendicularY = unitX
+            let isOutgoing = edge.sourceID == currentNodeID
+            let offset: CGFloat = isOutgoing ? -3 : 3
+            let start = CGPoint(
+                x: source.x + unitX * 22 + perpendicularX * offset,
+                y: source.y + unitY * 22 + perpendicularY * offset
+            )
+            let end = CGPoint(
+                x: destination.x - unitX * 22 + perpendicularX * offset,
+                y: destination.y - unitY * 22 + perpendicularY * offset
+            )
+            let color: Color = isOutgoing ? .accentColor : .orange
+
+            var line = Path()
+            line.move(to: start)
+            line.addLine(to: end)
+            context.stroke(
+                line,
+                with: .color(color.opacity(0.7)),
+                style: StrokeStyle(lineWidth: 1.5, lineCap: .round)
+            )
+
+            let arrowLength: CGFloat = 8
+            let arrowWidth: CGFloat = 4
+            var arrow = Path()
+            arrow.move(to: end)
+            arrow.addLine(to: CGPoint(
+                x: end.x - unitX * arrowLength + perpendicularX * arrowWidth,
+                y: end.y - unitY * arrowLength + perpendicularY * arrowWidth
+            ))
+            arrow.addLine(to: CGPoint(
+                x: end.x - unitX * arrowLength - perpendicularX * arrowWidth,
+                y: end.y - unitY * arrowLength - perpendicularY * arrowWidth
+            ))
+            arrow.closeSubpath()
+            context.fill(arrow, with: .color(color.opacity(0.85)))
         }
     }
 }
